@@ -1,0 +1,499 @@
+ <template>
+	<view class="page">
+	<view style="color: #fff">
+		<text>多人会议 {{time}}</text>
+	</view>
+	<view class="videoBox">
+		<emlive-pusher 
+			class="live-pusher" 
+			:videoWidth="640"
+			:videoHeight="480"
+			:muted="false" 
+			:enableCamera="true" 
+			:devicePosition="devicePosition"
+			id="livePusher"
+			ref="livePusher" 
+			@bindnetstatus="netstatus" 
+			@bindstatechange="statechange" 
+			@callbackData="onData"
+			style="width:170px;height:170px"
+			>
+		</emlive-pusher>
+		
+		<emlive-player 
+			id="livePlayer" 
+			ref="livePlayer" 
+			objectFit="fill" 
+			:muted="false"
+			:enableCamera="enableCamera" 
+			:streamId="videoSrc" 
+			@callbackData="onPlayerData"
+			style="width:170px;height:170px"
+			>
+		</emlive-player>
+			
+		<!-- <video id="remoteVideo" ref="remoteVideo" autoplay :src="videoSrc" controls="true" class="remote-video">2</video>
+		<video id="remoteVideo" ref="remoteVideo" autoplay :src="videoSrc" controls="true" class="remote-video">3</video> -->
+	</view>
+	
+	<view class="controlContent">
+		<view class="emediaContrContent">
+			<view class="controlItem" @tap="switchCamera">
+				<image
+					class="icon-record"
+					:src="getImgUrl(devicePositionIcon)"/>
+				<text :style="{color: devicePositionColor}">摄像头</text>
+			</view>
+			<view class="controlItem" @tap="switchMicphone">
+				<image
+					class="icon-record"
+					:src="getImgUrl(micphoneIcon)"/>
+				<text :style="{color: micphoneColor}">麦克风</text>
+			</view>
+			<view class="controlItem" @tap="togglePlay">
+				<image
+					class="icon-record"
+					:src="getImgUrl(videoIcon)"/>
+				<text :style="{color: videoColor}">视频</text>
+			</view>
+			<view class="controlItem" >
+				<image
+					class="icon-record"
+					:src="getImgUrl('invite_white')"/>
+				<text class="inviteText">邀请</text>
+			</view>
+		</view>
+		<view class="hangup" @tap="hangup">
+			<text>挂断</text>
+		</view>
+		</view>
+	</view>
+ </template>
+ 
+<script>
+	
+	export default {
+		data() {
+			return {
+				videoSrc: '',
+				pubUrl: "",
+				subUrls: [],
+				showInvite: true,
+				devicePosition: "front",
+				muted: false,
+				playVideoMuted: false,
+				
+				devicePositionIcon: 'switchCamera_white',
+				devicePositionColor: '#fff',
+				micphoneIcon: 'micphone_white',
+				micphoneColor: '#fff',
+				videoIcon: 'video_white',
+				videoColor: '#fff',
+				myName: '',
+				confrId: '',
+				enableCamera: true,
+				time: '',
+				context: {},
+				members: [],
+				groupId: '',
+			}
+		},
+		props: {
+		  username: {
+		    type: Object,
+		    default: () => ({}),
+		  },
+		  action: {
+		    type: Object,
+		    default: ()=>({}),
+		  }
+		},
+		methods: {
+			joinRome(data){
+				console.log('joinRoom')
+				let me = this;
+				let rec = wx.getStorageSync("rec") || false;
+				let recMerge = wx.getStorageSync("recMerge") || false;
+				if(data && data.conferenceId){
+					uni.emedia.mgr.joinConference(data.conferenceId, data.password).then( (res) => {
+						console.log('我已经加入会议了', res)
+					})
+					return 
+				}
+				uni.emedia.mgr.createConference(11, '123456', rec, recMerge).then( (data) => {
+					console.log('创建会议成功', data)
+					let ticket = data.data.ticket
+					let rtcCfg = me.rtcCfg = "{relayOnly:false}"//JSON.parse(data.data.rtcCfg)
+					let ticketJosn = JSON.parse(ticket)
+					let confrId = me.confrId = ticketJosn.confrId
+					let ticketId = me.ticketId = ticketJosn.tktId
+					let uid = me.uid = ticketJosn.memName
+					uni.emedia.mgr.joinConference(confrId, '123456').then( (res) => {
+						console.log('我已经加入会议了', res)
+						me.sendInviteMsg(me.members, confrId, '123456')
+						
+					})
+				}).catch((err) => {
+					console.log(err)
+				})
+			},
+			
+			addEmediaListen(){
+				let me = this;
+				uni.emedia.mgr.onMemberExited = function(reason) {
+					console.log(' %^^^^^% onMemberExited:', reason)
+				};
+				uni.emedia.mgr.onMemberJoined = function(mem, steam) {
+					console.log("有人加入会议:", mem, steam)
+					let sessId
+					if(!me.sessId){
+						sessId = me.sessId = mem.sessId
+					}else{
+						sessId = me.sessId;
+					}
+					
+					console.log('原生发布流', {
+						uId: me.uid,
+						sessId: sessId,
+						rtcCfg: me.rtcCfg,
+						tktId: me.ticketId
+					})
+					// uni.emedia.mgr.onCallbackData(me.confrId, sdp, me.$refs.livePusher)
+					console.log('me.$refs.livePusher', me.$refs.livePusher)
+					
+					
+					var jid = uni.WebIM.conn.context.jid
+					var identityName = jid.appKey + '_' + jid.name+ '@' + jid.domain
+					console.log('啦啦啦啦啦啦',identityName, mem.name)
+					if(mem.name == identityName){
+						console.log('发布流')
+						me.$refs.livePusher.start({
+							uId: me.uid,
+							sessId: sessId,
+							rtcCfg: me.rtcCfg,
+							tktId: me.ticketId
+						})
+					}
+					
+				};
+				uni.emedia.mgr.onStreamAdded = function(stream) {
+					console.log('%c onAddStream', 'color: green', stream)
+					let streamId = stream.id
+					
+					me.$refs.livePlayer.play({
+						streamId: streamId,
+						sessId: me.sessId
+					})
+					// uni.emedia.mgr.subStream(streamId).then(function(data) {
+					// 	console.log('%c 订阅流成功', 'color:green', data)
+					// 	let subUrl = {
+					// 		streamId: streamId,
+					// 		subUrl: data.data.rtmp,
+					// 		memName: stream.memName.split("_")[1].split("@")[0],
+					// 	}
+						
+					// 	console.log('%c 订阅流成功=' + data.data.rtmp)
+					// 	me.videoSrc = data.data.rtmp
+					// })setRemoteDescription
+				};
+				uni.emedia.mgr.onSignallingData = function(data){
+					console.log('服务器返回信令', data)
+					
+					if(data.rtcId == me.rtcId){
+						console.log('liveplayer ===')
+						me.$refs.livePlayer.setData(data)
+					}else{
+						console.log('livePusher ===')
+						me.$refs.livePusher.setData(data)
+					}
+				}
+			},
+			
+			// 组件回调数据通知 包括信令
+			onData(data){
+				let me = this;
+				console.log('插件返回数据', data.detail)
+				if(data.detail.type === "feature"){
+					// 信令发给服务器
+					console.log('给服务器发信令', data.detail.data)
+					// if(typeof(data.detail.data.sdp) == 'object'){
+					// 	data.detail.data.sdp = JSON.stringify(data.detail.data.sdp);
+					// }
+					// if(data.detail.data.pubS){
+					// 	data.detail.data.pubS.type = 0
+					// }
+					// if(typeof(data.detail.data.cands) == 'object'){
+					// 	data.detail.data.cands = [JSON.stringify(data.detail.data.cands)]
+					// }
+					uni.emedia.mgr.onCallbackData(me.confrId, data.detail.data, this.$refs.livePusher)
+				}
+			},
+			// livePlayer返回的信令
+			onPlayerData(data){
+				let me = this;
+				console.log('- 拉流 - 插件返回数据', data.detail)
+				if(data.detail.type === 'feature'){
+					// 信令发给服务器
+					let rtcId = this.rtcId = data.detail.data.rtcId
+					uni.emedia.mgr.onCallbackData(me.confrId, data.detail.data, this.$refs.livePlayer)
+				}
+			},
+			
+			sendInviteMsg(members, confrId, password){
+				let me = this;
+				console.log(members)
+				console.log('进入发邀请的函数', members)
+				console.log('this.username.groupId----', this.groupId)
+				console.log('confrId', confrId)
+				
+				members&&members.forEach((value) => {
+					let id = uni.WebIM.conn.getUniqueId();
+					let msg = new uni.WebIM.message('txt', id);
+			
+					msg.set({
+						msg: wx.WebIM.conn.context.userId + ' invite you to video call',
+						from: wx.WebIM.conn.context.userId,
+						to: value,
+						roomType: false,
+						chatType: 'singleChat',
+						ext: {
+							msg_extension: JSON.stringify({
+								inviter: wx.WebIM.conn.context.userId,
+								group_id: me.groupId
+							}),
+							// roomName: data&&data.roomName || '',
+							password: password,
+							conferenceId: confrId
+						},
+						success(id, serverMsgId){
+							console.log('发送邀请消息成功 to: '+value)
+							//disp.fire('em.chat.sendSuccess', id, me.data.userMessage);
+						},
+						fail(id, serverMsgId){
+							console.log('发送邀请消息失败了')
+						}
+					});
+					
+					// if(this.chatType == msgType.chatType.CHAT_ROOM){
+					// 	msg.setGroup("groupchat");
+					// }
+					console.log('发送邀请', msg.body)
+					uni.WebIM.conn.send(msg.body);
+			
+				})
+			},
+			statechange(e) {
+				console.log("插件返回statechange", e)
+				console.log("statechange:" + JSON.stringify(e));
+			},
+			netstatus(e) {
+				console.log("插件返回netstatus", e)
+				console.log("netstatus:" + JSON.stringify(e));
+			},
+			error(e) {
+				console.log("error:" + JSON.stringify(e));
+			},
+			start: function() {
+				this.context.start({
+					success: (a) => {
+						console.log("livePusher.start:" + JSON.stringify(a));
+					}
+				});
+			},
+			stop: function() {
+				this.$refs.LlivePusher.stop()
+			},
+			switchCamera: function() {
+				this.devicePosition = this.devicePosition == 'fron' ? 'back' : 'front'
+				this.devicePositionIcon = this.devicePositionIcon =='switchCamera_white'?'switchCamera_gray': 'switchCamera_white';
+				this.devicePositionColor = this.devicePositionColor == '#fff'? '#aaa':'#fff';
+			},
+			switchMicphone: function(){
+				this.muted = !this.muted;
+				this.micphoneIcon = this.micphoneIcon == 'micphone_white'? 'micphone_gray': 'micphone_white';
+				this.micphoneColor = this.micphoneColor == '#fff'? '#aaa': '#fff'
+			},
+			
+			togglePlay: function(){
+				this.enableCamera = this.videoColor == '#fff'? false:true
+				this.videoIcon = this.videoIcon == 'video_white'?'video_gray': 'video_white';
+				this.videoColor = this.videoColor == '#fff'? '#aaa': '#fff'
+			},
+			
+			startPreview: function() {
+				this.context.startPreview({
+					success: (a) => {
+						console.log("livePusher.startPreview:" + JSON.stringify(a));
+					}
+				});
+			},
+			stopPreview: function() {
+				this.context.stopPreview({
+					success: (a) => {
+						console.log("livePusher.stopPreview:" + JSON.stringify(a));
+					}
+				});
+			},
+			hangup: function(){
+				uni.emedia.mgr.exitConference()
+				this.stopTimer()
+				uni.navigateBack({
+					 url: "../groupChatRoom/groupChatRoom"
+				});
+				this.$refs.livePusher.stop()
+				this.$refs.livePusher.stop()
+			},
+			getImgUrl: function(name){
+				return `../../static/images/${name}@2x.png`
+			},
+			
+			getTimer(){
+				let count = 0;
+				let time = '00:00:00'
+				let me = this;
+				this.timer = setInterval(() => {
+					count++;
+					let s = showNum(count % 60);
+					let m = showNum(parseInt((count / 60)) % 60)
+					let h = showNum(parseInt(count / 60 / 60))
+					time = `${h}:${m}:${s}`
+					me.time = time
+				}, 1000)
+	
+				function showNum(num) {
+					if (num < 10) {
+						return '0' + num
+					}
+					return num
+				}
+	
+			},
+			stopTimer(){
+				clearInterval(this.timer)
+			}
+		
+		},
+		
+		onReady() {
+			uni.setKeepScreenOn({keepScreenOn: true})
+			// let params = {};
+			// this.addEmediaListen()
+			// this.joinRome();
+			// this.getTimer()
+		},
+		onLoad(options){
+			console.log('options ....... ', options)
+			this.addEmediaListen()
+			if(options.action == 'join'){
+				let {conferenceId, password} = options
+				this.joinRome({conferenceId, password})
+				this.getTimer()
+				return
+			}
+			let members = JSON.parse(options.srcData).confrMember
+			let groupId = JSON.parse(options.srcData).groupId
+			this.members = members;
+			this.groupId = groupId;
+			this.joinRome()
+			this.getTimer()
+		},
+		onUnload(){
+			console.log('退出')
+			uni.emedia.mgr.exitConference()
+			this.stopTimer()
+		}
+	}
+</script>
+
+<style scoped>
+/* @import url("./index.css"); */
+.page{
+	background-color: #333333;
+	/* width: 100%; */
+	width: 750rpx;;
+	height: 1334rpx;
+	/* height: 100%; */
+	position: absolute;
+}
+.live-pusher{
+	/* width: 371rpx;
+	height: 371rpx;
+	margin: 2rpx; */
+}
+.videoBox{
+	display: flex;
+	flex-direction: row;
+	flex-wrap: wrap;
+	/* background-color: #008000; */
+	overflow: hidden;
+}
+.remote-video{
+	width: 371rpx;
+	height: 371rpx;
+	background-color: pink;
+	margin: 2rpx;
+}
+.controlContent{
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	position: fixed;
+	bottom: 0;
+	width: 750rpx;
+	/* background-color: #09BB07; */
+}
+.emediaContrContent{
+	display: flex;
+	/* flex: 1; */
+	/* width: 750rpx; */
+	flex-direction: row;
+	justify-content: space-between;
+	padding: 0;
+	/* background-color: #0000FF; */
+}
+.controlItem{
+	margin: 30rpx;
+	text-align: center;
+	flex: 1;
+	height: 100rpx;
+	display: flex;
+	justify-content: center;
+	align-items: center;
+	color: #FFFFFF;
+	font-size: 12px;
+	font-weight: bold;
+}
+.controlItem text{
+	font-size: 10px;
+	font-weight: bold;
+}
+.inviteText{
+	color: #fff;
+}
+.hangup{
+	/* width: 750rpx;
+	height: 100rpx;
+	display: flex;
+	flex: 1;
+	align-items: center;
+	justify-content: center;
+	background-color: #2892FD; */
+	
+	width: 100rpx;
+	height: 100rpx;
+	border-radius: 50rpx;
+	background: red;
+	margin-top: 30rpx;
+	margin-bottom: 30rpx;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	color: #fff;
+
+}
+.icon-record{
+	width: 44rpx;
+	height: 48rpx;
+	margin: 5px;
+}
+</style>

@@ -1,0 +1,9 @@
+include ':app'
+include ':uniplugin_module'
+include ':uniplugin_component'
+include ':uniplugin_richalert'
+include ':rtcsdk'
+project(':rtcsdk').projectDir = new File('../rtc-android/rtcsdk')
+include ':websocket'
+project(':websocket').projectDir = new File('../rtc-android/websocket')
+rootProject.name='uniapp-plugin-demo'
